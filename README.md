@@ -1,1 +1,1 @@
-15-11-2023
+Xep tkb voi claude ai 1-11-2026
