@@ -766,23 +766,52 @@ def to_excel_bytes(df, classes):
 
 # ---------------------------------------------------------------------- PDF
 def register_fonts():
+    """Ưu tiên font .ttf trong thư mục fonts/ cạnh streamlit_app.py (laptop, iPhone, Cloud đều dùng được).
+    Nếu không có thì thử font hệ thống."""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+
+    if "VN" in pdfmetrics.getRegisteredFontNames():
+        return                                   # đã đăng ký rồi
+
+    def try_register(reg, bold):
+        try:
+            pdfmetrics.registerFont(TTFont("VN", reg))
+            pdfmetrics.registerFont(TTFont("VN-B", bold or reg))
+            return True
+        except Exception:
+            return False
+
+    # 1) thư mục fonts/ của dự án (tên tệp nào cũng được)
+    fdir = os.path.join(APP_DIR, "fonts")
+    if os.path.isdir(fdir):
+        files = [f for f in os.listdir(fdir) if f.lower().endswith(".ttf")]
+        skip = ("italic", "oblique", "light", "condensed", "mono")
+        is_bold = lambda f: ("bold" in f.lower() or f.lower().endswith("bd.ttf")) \
+            and not any(s in f.lower() for s in skip)
+        regs = sorted((f for f in files if not is_bold(f) and not any(s in f.lower() for s in skip)),
+                      key=len)
+        bolds = sorted((f for f in files if is_bold(f)), key=len)
+        if regs:
+            reg = regs[0]
+            stem = os.path.splitext(reg)[0].lower()
+            bold = next((b for b in bolds if b.lower().startswith(stem[:6])), bolds[0] if bolds else None)
+            if try_register(os.path.join(fdir, reg), os.path.join(fdir, bold) if bold else None):
+                return
+
+    # 2) font hệ thống (dự phòng)
     cands = [
-        (os.path.join(APP_DIR, "fonts", "DejaVuSans.ttf"), os.path.join(APP_DIR, "fonts", "DejaVuSans-Bold.ttf")),
         ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
         ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
         ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
         ("/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf"),
     ]
     for reg, bold in cands:
-        if os.path.exists(reg):
-            pdfmetrics.registerFont(TTFont("VN", reg))
-            pdfmetrics.registerFont(TTFont("VN-B", bold if os.path.exists(bold) else reg))
+        if os.path.exists(reg) and try_register(reg, bold if os.path.exists(bold) else None):
             return
-    raise RuntimeError("Không tìm thấy font Unicode. Thêm 'fonts-dejavu-core' vào packages.txt "
-                       "hoặc đặt DejaVuSans.ttf vào thư mục fonts/.")
-
+    raise RuntimeError("Không tìm thấy font Unicode. Hãy tạo thư mục 'fonts' cạnh streamlit_app.py "
+                       "và chép DejaVuSans.ttf, DejaVuSans-Bold.ttf vào đó.")
+                       
 
 def build_pdf(kind, df, classes, school, apply_from, only=None):
     from reportlab.lib import colors
