@@ -1261,7 +1261,7 @@ for c in HELPER_COLS:
     gb.configure_column(c, hide=True)
 gb.configure_column("Thứ", pinned="left", width=70, editable=False)
 gb.configure_column("Tiết", pinned="left", width=70, editable=False)
-gb.configure_column("Giờ", pinned="left", width=120, editable=False)
+gb.configure_column("Giờ", hide=True)
 cj = click_js(mode, S.gmap)
 if cj is not None:
     gb.configure_grid_options(onCellClicked=cj)
