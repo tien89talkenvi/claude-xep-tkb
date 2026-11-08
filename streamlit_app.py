@@ -1009,7 +1009,7 @@ def show_teacher(name, df, classes, hit):
 
 
 # ---- 3. upload
-st.subheader("1️⃣Lấy dữ liệu")
+st.subheader("1️⃣ Lấy dữ liệu")
 up = st.file_uploader("Upload tệp Excel TKB (.xlsx)", type=["xlsx"])
 if up is not None:
     sig = (up.name, up.size)
@@ -1062,7 +1062,7 @@ S.groups = parse_joint(S.joint)
 S.gmap = joint_map(S.groups)
 
 # ---- 6, 7. xếp TKB
-st.subheader("2️⃣Xếp TKB tự động (Google OR-Tools)")
+st.subheader("2️⃣ Xếp TKB tự động (Google OR-Tools)")
 a1, a2, a3 = st.columns([2, 2, 2])
 with a1:
     avoid_file = st.file_uploader("Lấy tệp gvyctranh.xlsx (cột ten_gv, Thứ 2..Thứ 7; ô ghi các cặp (Thứ,tiết))", type=["xlsx"], key="avoid_up")
@@ -1250,7 +1250,7 @@ if st.button("📥 Đưa các tiết chưa xếp vào lưới", disabled=(n_rem 
     st.rerun()
 
 # ---- 5, 8. lưới
-st.subheader("3️⃣Tinh chỉnh TKB)")
+st.subheader("3️⃣ Tinh chỉnh TKB")
 t1, t2, t3 = st.columns([1, 1, 3])
 t1.toggle("Bật/Tắt: Hoán vị ô", key="swap1", on_change=on_swap1)
 t2.toggle("Bật/Tắt: Xem TKB của GV", key="swap2", on_change=on_swap2)
@@ -1288,8 +1288,12 @@ gb.configure_default_column(editable=EDITABLE_JS if mode == "free" else False, s
                             cellStyle=CELL_STYLE)
 for c in HELPER_COLS:
     gb.configure_column(c, hide=True)
-gb.configure_column("Thứ", pinned="left", width=70, editable=False)
-gb.configure_column("Tiết", pinned="left", width=70, editable=False)
+#gb.configure_column("Thứ", pinned="left", width=20, editable=False)
+#gb.configure_column("Tiết", pinned="left", width=20, editable=False)
+
+gb.configure_column("Thứ", pinned="left", width=30, mminWidth=30, mmaxWidth=30, suppressSizeToFit=True, editable=False)
+gb.configure_column("Tiết", pinned="left", width=60, minWidth=60, maxWidth=60, suppressSizeToFit=True, editable=False)
+
 gb.configure_column("Giờ", hide=True)
 cj = click_js(mode, S.gmap)
 if cj is not None:
@@ -1347,12 +1351,12 @@ if nd is not None and len(nd):
                             st.toast("Ô này chưa có GV.")
 
 # ---- Xem/In rời rạc & nhập tránh tiết
-st.subheader("4️⃣Chỉnh tiêu đề bản in")
+st.subheader("4️⃣ Chỉnh tiêu đề bản in")
 q1, q2 = st.columns(2)
 school = q1.text_input("Trường", "ABC")
 apply_from = q2.date_input("Áp dụng từ", value=date(2026, 9, 5), format="DD/MM/YYYY")
 
-st.subheader("5️⃣Xem/Tải TKB Giáo viên/Lớp")
+st.subheader("5️⃣ Xem/Tải TKB Giáo viên/Lớp")
 gv_list = sorted({gv_name(t) for c in classes for t in S.base[c]}
                  | {gv_name(tok(v)) for c in classes for v in df[c] if tok(v)})
 def _pick(kind, key):
@@ -1392,13 +1396,13 @@ if S.get("open_dlg"):
     dlg_week(_kind, _name)
 
 # ---- 9. download excel
-st.subheader("6️⃣Tải về tệp TKB excel chung")
+st.subheader("6️⃣ Tải về tệp TKB excel chung")
 st.download_button("⬇️ Tải file TKB excel đã xếp", to_excel_bytes(S.df, classes),
                    "tkb_da_xep.xlsx",
                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # ---- 10. PDF
-st.subheader("7️⃣Tải các Tkb.pdf : Trường, Giáo viên, Lớp")
+st.subheader("7️⃣ Tải các Tkb.pdf : Trường, Giáo viên, Lớp")
 kind = st.selectbox("Chọn loại PDF", ["tkb_all", "tkb_moi_gv", "tkb_moi_lop"],
                     format_func=lambda k: {"tkb_all": "tkb_all.pdf - TKB toàn trường",
                                            "tkb_moi_gv": "tkb_moi_gv.pdf - TKB từng giáo viên",
