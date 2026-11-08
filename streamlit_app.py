@@ -519,7 +519,7 @@ function(p){
   if(!d) return null;
   var st={backgroundColor:d._bg, color:'#111', fontSize:'12px'};
   if(f==='Thứ'||f==='Tiết'||f==='Giờ'){
-    st.backgroundColor='#1f4e9c'; st.color='#fff'; st.fontWeight='bold';
+    st.backgroundColor='#87cefa'; st.color='#1f4e9c'; st.fontWeight='bold';
     if(d._dup && d._dup.length>0 && f!=='Giờ'){st.backgroundColor='#ff4d4d'; st.color='#fff'; st.fontWeight='bold';}
     return st;
   }
