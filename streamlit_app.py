@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Xếp & In TKB Trường học - Streamlit + OR-Tools + AgGrid + ReportLab"""
+"""Xếp & In TKB Trường học - Streamlit + OR-Tools + AgGrid + ReportLab
+Giao diện tối ưu cho iPhone:
+  - Trang chính: tiêu đề, mật mã, 2 nút hoán vị / xem TKB GV, lưới AgGrid, 3 menu chọn.
+  - Sidebar: tải dữ liệu, kiểm tra, ràng buộc, xếp tự động, tải về, xuất PDF.
+"""
 import hashlib
 import html
 import io
@@ -7,7 +11,7 @@ import json
 import os
 import re
 from collections import Counter
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
@@ -190,24 +194,6 @@ def parse_joint(jdf):
     return groups
 
 
-def load_joint_df(f):
-    """Đọc tietghep.xlsx: cột GV_Mon, Lop, Vi_tri (nếu tên cột khác thì lấy 3 cột đầu theo thứ tự)."""
-    j = pd.read_excel(f, dtype=object)
-    j.columns = [str(c).strip() for c in j.columns]
-    if not all(c in j.columns for c in JOINT_COLS):
-        if len(j.columns) < 2:
-            raise ValueError("Cần ít nhất 2 cột: GV_Mon, Lop (và Vi_tri nếu muốn cố định vị trí).")
-        j = j.iloc[:, :3].copy()
-        j.columns = JOINT_COLS[:len(j.columns)]
-    for c in JOINT_COLS:
-        if c not in j.columns:
-            j[c] = ""
-    j = j[JOINT_COLS].copy()
-    for c in JOINT_COLS:
-        j[c] = j[c].map(tok)
-    return j[j["GV_Mon"] != ""].reset_index(drop=True)
-
-
 def check_joint(groups, base, classes):
     """Báo các nhóm tiết ghép không khớp với file TKB đang làm việc."""
     out = []
@@ -227,13 +213,6 @@ def check_joint(groups, base, classes):
     return out
 
 
-def joint_template():
-    df = pd.DataFrame({"GV_Mon": ["Minh_TD"], "Lop": ["6A1,6A2"], "Vi_tri": ["(4,2)"]})
-    b = io.BytesIO()
-    df.to_excel(b, index=False)
-    return b.getvalue()
-
-
 def joint_map(groups):
     """'lớp|GV_Môn' -> số thứ tự nhóm ghép."""
     return {f"{c}|{g['token']}": i for i, g in enumerate(groups) for c in g["classes"]}
@@ -251,16 +230,6 @@ def cells_clash(name, parts, gmap):
             return True
         gids.add(gid)
     return len(gids) > 1
-
-
-def avoid_template():
-    df = pd.DataFrame({"ten_gv": ["Anh", "Bình"],
-                       "Thứ 2": ["(2,1), (3,1), (6,5)", ""],
-                       "Thứ 3": ["", "(4,3)"],
-                       "Thứ 4": ["", ""], "Thứ 5": ["", ""], "Thứ 6": ["", ""], "Thứ 7": ["", ""]})
-    b = io.BytesIO()
-    df.to_excel(b, index=False)
-    return b.getvalue()
 
 
 # ----------------------------------------------------------------- OR-Tools
@@ -583,11 +552,11 @@ def week_html(kind, df, classes, name, school, apply_from, gmap=None):
     """TKB tuần của 1 GV / 1 lớp, trình bày giống bản in PDF."""
     days, rows = week_table(kind, df, classes, name)
     title = ("TKB của GV: " if kind == "gv" else "TKB của Lớp: ") + name
-    b = "border:1px solid #000;padding:4px 8px;text-align:center;color:#000;"
-    out = ["<div style='background:#fff;color:#000;padding:10px 14px;border-radius:6px;overflow-x:auto'>",
-           "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>"
+    b = "border:1px solid #000;padding:4px 6px;text-align:center;color:#000;font-size:13px;"
+    out = ["<div style='background:#fff;color:#000;padding:8px 10px;border-radius:6px;overflow-x:auto'>",
+           "<div style='display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-bottom:8px;gap:4px'>"
            f"<div>Trường : {html.escape(school)}</div>"
-           f"<div style='font-weight:bold;font-size:1.15em'>{html.escape(title)}</div>"
+           f"<div style='font-weight:bold;font-size:1.1em'>{html.escape(title)}</div>"
            f"<div>Áp dụng từ: {fmt_date(apply_from)}</div></div>",
            "<table style='border-collapse:collapse;width:100%'><tr>"
            + f"<th style='{b}background:#d9d9d9'>Tiết</th><th style='{b}background:#d9d9d9'>Giờ</th>"
@@ -811,7 +780,7 @@ def register_fonts():
             return
     raise RuntimeError("Không tìm thấy font Unicode. Hãy tạo thư mục 'fonts' cạnh streamlit_app.py "
                        "và chép DejaVuSans.ttf, DejaVuSans-Bold.ttf vào đó.")
-                       
+
 
 def build_pdf(kind, df, classes, school, apply_from, only=None):
     from reportlab.lib import colors
@@ -911,27 +880,82 @@ def build_pdf(kind, df, classes, school, apply_from, only=None):
     return buf.getvalue()
 
 
+# ======================================================== info.json (tiêu đề + ràng buộc)
+def info_bytes():
+    """info.json: tiêu đề bản in, các ràng buộc xếp, các nhóm tiết ghép."""
+    data = {
+        "truong": S.school,
+        "ap_dung_tu": fmt_date(S.apply_from),
+        "cac_rang_buoc": {k: bool(v["bat"]) for k, v in S.rules.items()},
+        "tiet_ghep": S.joint.to_dict("records"),
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def apply_info(data):
+    if isinstance(data.get("truong"), str):
+        S.school = data["truong"]
+    d = data.get("ap_dung_tu")
+    if d:
+        try:
+            S.apply_from = datetime.strptime(str(d).strip(), "%d/%m/%Y").date()
+        except ValueError:
+            pass
+    rb = data.get("cac_rang_buoc")
+    if isinstance(rb, dict):
+        for k, v in rb.items():
+            if k in S.rules and not S.rules[k].get("khoa"):
+                S.rules[k]["bat"] = bool(v)
+        save_rules(S.rules)
+    tg = data.get("tiet_ghep")
+    if isinstance(tg, list):
+        rows = [{c: tok(r.get(c, "")) for c in JOINT_COLS} for r in tg if isinstance(r, dict)]
+        S.joint = pd.DataFrame(rows, columns=JOINT_COLS)
+        S.gk += 1
+
+
 # =============================================================== GIAO DIỆN
-st.set_page_config(page_title="Xếp & In TKB Trường học", layout="wide")
+st.set_page_config(page_title="Xếp & In TKB Trường học", page_icon="⚙️",
+                   layout="wide", initial_sidebar_state="auto")
+
+# CSS cho điện thoại: lề hẹp, nút to dễ bấm, các cột (st.columns) luôn nằm ngang trên iPhone.
+st.markdown("""
+<style>
+.block-container{padding:2.2rem .7rem 2rem !important;}
+h2{font-size:1.35rem !important;}
+.stButton>button,.stDownloadButton>button{min-height:2.6rem;}
+@media (max-width:640px){
+  div[data-testid="stHorizontalBlock"]{flex-direction:row !important;flex-wrap:nowrap !important;gap:.4rem !important;}
+  div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"],
+  div[data-testid="stHorizontalBlock"]>div[data-testid="column"]{min-width:0 !important;width:auto !important;flex:1 1 0 !important;}
+  div[data-testid="stSelectbox"] label p,div[data-testid="stToggle"] label p{font-size:.8rem !important;}
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---- A1. tiêu đề
 st.header("⚙️ Xếp & In TKB Trường học với tiensg89@")
 
 S = st.session_state
-if "joint" not in st.session_state:
-    st.session_state.joint = pd.DataFrame(columns=JOINT_COLS)
-if "avoid_df" not in st.session_state:
-    st.session_state.avoid_df = pd.DataFrame(columns=AVOID_COLS)
-for k, v in {"avoid_sig": None, "avoid_ver": 0, "joint_sig": None, "auth": False, "df": None, "ban": None, "classes": [], "pending": None,
-             "gk": 0, "report": None, "sig": None, "avoid": {}, "view_gv": None,
-             "flash": None, "swap1": False, "swap2": False, "base": {}, "last_clk": ""}.items():
+if "joint" not in S:
+    S.joint = pd.DataFrame(columns=JOINT_COLS)
+if "avoid_df" not in S:
+    S.avoid_df = pd.DataFrame(columns=AVOID_COLS)
+for k, v in {"avoid_sig": None, "avoid_ver": 0, "info_sig": None, "auth": False, "df": None,
+             "ban": None, "classes": [], "pending": None, "gk": 0, "report": None, "sig": None,
+             "avoid": {}, "flash": None, "swap1": False, "swap2": False, "base": {},
+             "last_clk": "", "groups": [], "gmap": {}, "open_dlg": None, "open_result": False,
+             "school": "ABC", "apply_from": date(2026, 9, 5), "pdf": None, "avoid_msg": None,
+             "grid_df": None, "grid_gk": None}.items():
     S.setdefault(k, v)
 if "rules" not in S:
     S.rules = load_rules()
 for _k, _v in DEFAULT_RULES.items():
     S.rules.setdefault(_k, json.loads(json.dumps(_v)))
 
-# ---- 2. mật mã
+# ---- A2. mật mã
 if not S.auth:
-    pw = st.text_input("Nhập mật mã để làm việc tiếp", type="password")
+    pw = st.text_input("Nhập mật mã để vào app", type="password")
     real = st.secrets.get("APP_PASSWORD", "tkb@2026") if hasattr(st, "secrets") else "tkb@2026"
     if pw:
         if pw == real:
@@ -955,32 +979,135 @@ def show_report(rep):
         st.error("Cấu trúc tệp SAI → từ chối xử lí. Vui lòng sửa tệp và upload lại.")
 
 
-@st.dialog("Chọn ràng buộc xếp TKB", width="large")
+@st.dialog("Chọn / bỏ ràng buộc xếp TKB", width="large")
 def constraint_dialog():
-    with st.expander("Nội dung file cacrangbuocxep.json", expanded=True):
-        st.json(S.rules)
     new = json.loads(json.dumps(S.rules))
     for k, v in S.rules.items():
         new[k]["bat"] = st.checkbox(v["mo_ta"], value=v["bat"], disabled=v.get("khoa", False),
                                     key=f"rule_{k}")
-    if st.button("Lưu lựa chọn", type="primary"):
+    if st.button("💾 Lưu lựa chọn", type="primary", use_container_width=True):
         S.rules = new
         save_rules(new)
         st.rerun()
 
 
-def on_swap1():
-    if S.swap1:
-        S.swap2 = False
-    S.pending = None
-    S.gk += 1
+@st.dialog("Xếp TKB tự động")
+def dlg_solve():
+    st.caption("Thuật toán Google OR-Tools xếp theo các ràng buộc đang bật. "
+               "Thời gian càng dài, kết quả càng tốt.")
+    on_n = sum(1 for v in S.rules.values() if v["bat"])
+    st.caption(f"Đang bật {on_n}/{len(S.rules)} ràng buộc.")
+    tl = st.select_slider("Thời gian chạy tối đa (giây)", options=[60, 120, 180, 240, 300], value=60)
+    if st.button("▶️ Bắt đầu xếp", type="primary", use_container_width=True):
+        with st.spinner(f"Đang xếp TKB (tối đa {tl} giây)...", show_time=True):
+            ok, msg, new = solve_tkb(S.df, S.ban, S.classes, S.base, S.rules, S.avoid, tl, S.groups)
+        if ok:
+            S.df = new
+            S.pending = None
+            S.gk += 1
+            S.open_result = True
+            st.rerun()
+        else:
+            st.error(msg)
 
 
-def on_swap2():
-    if S.swap2:
-        S.swap1 = False
-    S.pending = None
-    S.gk += 1
+@st.dialog("Kết quả xếp TKB tự động")
+def dlg_result():
+    rem = remaining(S.df, S.ban, S.classes, S.base)
+    n_rem = sum(sum(v.values()) for v in rem.values())
+    n_total = sum(sum(v.values()) for v in S.base.values())
+    placed = n_total - n_rem
+    pct = round(100 * placed / n_total, 1) if n_total else 100.0
+    st.progress(min(max(pct / 100, 0.0), 1.0))
+    st.markdown(f"✅ Đã xếp: **{pct}%** ({placed}/{n_total} tiết)  \n"
+                f"⬜ Chưa xếp: **{round(100 - pct, 1)}%** ({n_rem} tiết)")
+    if n_rem == 0:
+        st.success("Đã xếp đủ 100% số tiết.")
+        if st.button("Đóng", use_container_width=True):
+            st.rerun()
+        return
+    with st.expander("Xem các tiết chưa xếp"):
+        st.dataframe(pd.DataFrame([{"Lớp": c, "Số tiết": sum(v.values()),
+                                    "Các tiết": ", ".join(f"{t} x{n}" for t, n in sorted(v.items()))}
+                                   for c, v in rem.items() if v]),
+                     hide_index=True, use_container_width=True)
+    st.write("Đưa các tiết chưa xếp vào lưới AgGrid để tự tinh chỉnh bằng tay?")
+    y, n = st.columns(2)
+    if y.button("✔ Có", type="primary", use_container_width=True):
+        newdf = S.df.copy()
+        for c in S.classes:
+            free_cells = [i for i in range(len(S.df)) if not S.ban.at[i, c] and S.df.at[i, c] == ""]
+            for i, t in zip(free_cells, list(rem[c].elements())):
+                newdf.at[i, c] = t
+        S.df = newdf
+        S.pending = None
+        S.gk += 1
+        S.flash = "Đã đưa các tiết chưa xếp vào ô trống của lưới. Ô đỏ là chỗ GV trùng tiết."
+        st.rerun()
+    if n.button("✖ Không", use_container_width=True):
+        st.rerun()
+
+
+@st.dialog("Tiết ghép: 1 GV dạy nhiều lớp cùng lúc", width="large")
+def dlg_joint():
+    st.caption("Dùng cho môn như Thể dục: 1 GV dạy nhiều lớp chung 1 tiết ngoài sân. "
+               "Các lớp trong nhóm luôn học cùng ô và không bị tính là GV trùng tiết. "
+               "Dữ liệu này được lưu trong info.json (tải về ở thanh bên).")
+    toks = sorted({t for c in S.classes for t in S.base[c]})
+    tk = st.selectbox("GV_Môn", toks, index=None, placeholder="Chọn GV_Môn (ví dụ Minh_TD)...", key="jn_tok")
+    opts = [c for c in S.classes if tk and S.base[c].get(tk, 0) > 0]
+    cl = st.multiselect("Các lớp học chung", opts, key="jn_cls")
+    fx = st.text_input("Vị trí cố định (Thứ,Tiết) - để trống nếu để máy tự chọn. Ví dụ: (4,2)", key="jn_fix")
+    if st.button("➕ Thêm nhóm ghép", use_container_width=True):
+        pairs = PAIR_RE.findall(fx)
+        if not tk or len(cl) < 2:
+            st.error("Hãy chọn GV_Môn và ít nhất 2 lớp.")
+        elif fx.strip() and not pairs:
+            st.error("Vị trí cố định phải có dạng (Thứ,Tiết), ví dụ (4,2).")
+        else:
+            row = {"GV_Mon": tk, "Lop": ",".join(cl),
+                   "Vi_tri": ", ".join(f"({d},{p})" for d, p in pairs)}
+            S.joint = pd.concat([S.joint, pd.DataFrame([row])], ignore_index=True)
+            S.gk += 1
+            st.success(f"Đã thêm nhóm ghép {tk}: {', '.join(cl)}.")
+    if len(S.joint):
+        st.markdown("**Các nhóm tiết ghép hiện có**")
+        show = S.joint.copy()
+        show.insert(0, "STT", range(1, len(show) + 1))
+        st.dataframe(show, hide_index=True, use_container_width=True)
+        dsel = st.selectbox("Xóa nhóm số", list(range(1, len(S.joint) + 1)), index=None,
+                            placeholder="Chọn STT...", key="jn_del")
+        if st.button("🗑 Xóa nhóm đã chọn", use_container_width=True) and dsel:
+            S.joint = S.joint.drop(index=dsel - 1).reset_index(drop=True)
+            S.gk += 1
+            st.rerun()
+    if st.button("✔ Xong, đóng", use_container_width=True):
+        st.rerun()
+
+
+@st.dialog("Nhập yêu cầu tránh tiết cho GV", width="large")
+def dlg_avoid(sel):
+    days_ = sorted(set(S.df["Thứ"].astype(int)))
+    cur = next((v for k, v in S.avoid.items() if k.casefold() == sel.casefold()), set())
+    st.markdown(f"**Yêu cầu xếp tránh tiết của GV: {sel}**")
+    st.caption("Nhập ký tự x vào ô của các tiết cần tránh xếp trong ngày.")
+    tbl = pd.DataFrame({"Tiết": list(range(1, 11))})
+    for d in days_:
+        tbl[f"Thứ {d}"] = ["x" if (d, p) in cur else "" for p in range(1, 11)]
+    cfg = {"Tiết": st.column_config.NumberColumn("Tiết", width="small")}
+    for d in days_:
+        cfg[f"Thứ {d}"] = st.column_config.TextColumn(f"Thứ {d}", max_chars=1, width="small")
+    edited = st.data_editor(tbl, hide_index=True, disabled=["Tiết"], column_config=cfg,
+                            key=f"avoid_ed_{sel}_{S.avoid_ver}")
+    if st.button("💾 Lưu dữ liệu", key=f"save_av_{sel}", use_container_width=True):
+        pairs = {(d, int(p)) for d in days_
+                 for p, v in zip(edited["Tiết"], edited[f"Thứ {d}"]) if tok(v)}
+        S.avoid_df = avoid_set_row(S.avoid_df, sel, pairs)
+        S.avoid = parse_avoid(S.avoid_df)
+        S.avoid_ver += 1
+        S.avoid_msg = (f"Đã lưu {len(pairs)} tiết tránh của GV {sel}. "
+                       "Mở thanh bên và bấm 'Tải gvyctranh.xlsx' để lấy file đã cập nhật.")
+        st.rerun()
 
 
 @st.dialog("TKB của giáo viên", width="large")
@@ -1008,67 +1135,99 @@ def show_teacher(name, df, classes, hit):
     st.caption("Ô vàng: ô vừa bấm. Ô đỏ: GV bị trùng tiết. Hàng xám: buổi chiều.")
 
 
-# ---- 3. upload
-st.subheader("1️⃣ Lấy dữ liệu")
-up = st.file_uploader("Upload tệp Excel TKB (.xlsx)", type=["xlsx"])
-if up is not None:
-    sig = (up.name, up.size)
-    if S.sig != sig:
-        S.sig = sig
-        try:
-            raw = pd.read_excel(up)
-            raw.columns = [str(c).strip() for c in raw.columns]
-            raw = raw.drop(columns=[c for c in raw.columns
-                                    if c.startswith("Unnamed") and raw[c].isna().all()])
-            rep = validate(raw)
-        except Exception as e:
-            raw, rep = None, [(False, f"Không đọc được tệp: {e}", [])]
-        S.report = rep
-        S.pending, S.view_gv = None, None
-        S.gk += 1
-        if report_ok(rep):
-            classes = list(raw.columns[3:])
-            df = raw.copy()
-            df["Thứ"] = df["Thứ"].astype(int)
-            df["Tiết"] = df["Tiết"].astype(int)
-            df["Giờ"] = df["Giờ"].astype(str)
-            for c in classes:
-                df[c] = df[c].map(tok)
-            df = df.reset_index(drop=True)
-            S.ban = pd.DataFrame({c: (df[c] == "") for c in classes})
-            S.df, S.classes = df, classes
-            S.base = {c: Counter(t for t in df[c] if t) for c in classes}
-        else:
-            S.df = None
-else:
-    S.sig = None
-    S.df = None
+@st.dialog("Xem / Tải TKB", width="large")
+def dlg_week(kind, name):
+    page, total = week_html(kind, S.df, S.classes, name, S.school, S.apply_from, S.gmap)
+    st.markdown(page, unsafe_allow_html=True)
+    st.caption(f"Tổng cộng {total} tiết/tuần.")
+    try:
+        data = build_pdf("tkb_moi_gv" if kind == "gv" else "tkb_moi_lop", S.df, S.classes,
+                         S.school, S.apply_from, only=name)
+        st.download_button(f"⬇️ Tải PDF {name}", data, f"tkb_{name}.pdf",
+                           mime="application/pdf", key=f"dl_{kind}_{name}",
+                           use_container_width=True)
+    except Exception as e:
+        st.caption(f"Không tạo được PDF: {e}")
 
-if S.report is not None:
-    c1, c2 = st.columns([1, 3])
-    if c1.button("🔍 Kiểm tra file excel"):
-        show_report(S.report)
-    if report_ok(S.report):
-        c2.success("Tệp hợp lệ.")
+
+def on_swap1():
+    if S.swap1:
+        S.swap2 = False
+    S.pending = None
+    S.gk += 1
+
+
+def on_swap2():
+    if S.swap2:
+        S.swap1 = False
+    S.pending = None
+    S.gk += 1
+
+
+def _pick(kind, key):
+    """Chọn trong selectbox -> yêu cầu mở dialog, rồi trả selectbox về trạng thái chưa chọn
+    (để lần sau chọn lại đúng GV/lớp đó vẫn mở được dialog)."""
+    v = S.get(key)
+    if v:
+        S.open_dlg = (kind, v)
+        S[key] = None
+
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+# ======================================================================= SIDEBAR
+btn_check = btn_rules = btn_joint = btn_solve = False
+with st.sidebar:
+    st.subheader("📂 Dữ liệu")
+
+    # B1. tải TKB excel lên server
+    up = st.file_uploader("1. Tải file Excel TKB (.xlsx) lên", type=["xlsx"], key="up_tkb")
+    if up is not None:
+        sig = (up.name, up.size)
+        if S.sig != sig:
+            S.sig = sig
+            try:
+                raw = pd.read_excel(up)
+                raw.columns = [str(c).strip() for c in raw.columns]
+                raw = raw.drop(columns=[c for c in raw.columns
+                                        if c.startswith("Unnamed") and raw[c].isna().all()])
+                rep = validate(raw)
+            except Exception as e:
+                raw, rep = None, [(False, f"Không đọc được tệp: {e}", [])]
+            S.report = rep
+            S.pending = None
+            S.gk += 1
+            if report_ok(rep):
+                classes_ = list(raw.columns[3:])
+                df_ = raw.copy()
+                df_["Thứ"] = df_["Thứ"].astype(int)
+                df_["Tiết"] = df_["Tiết"].astype(int)
+                df_["Giờ"] = df_["Giờ"].astype(str)
+                for c in classes_:
+                    df_[c] = df_[c].map(tok)
+                df_ = df_.reset_index(drop=True)
+                S.ban = pd.DataFrame({c: (df_[c] == "") for c in classes_})
+                S.df, S.classes = df_, classes_
+                S.base = {c: Counter(t for t in df_[c] if t) for c in classes_}
+            else:
+                S.df = None
     else:
-        c2.error("Tệp không đúng cấu trúc — từ chối xử lí. Bấm 'Kiểm tra file excel' để xem lỗi, rồi làm lại.")
+        S.sig = None
+        S.df = None
 
-if S.df is None:
-    st.info("Hãy upload tệp Excel TKB hợp lệ để bắt đầu.")
-    st.stop()
+    # B2. kiểm tra file excel
+    btn_check = st.button("2. 🔍 Kiểm tra file Excel TKB", use_container_width=True)
+    if S.report is not None:
+        if report_ok(S.report):
+            st.success("Tệp hợp lệ.")
+        else:
+            st.error("Tệp sai cấu trúc. Bấm nút kiểm tra để xem lỗi.")
 
-df, ban, classes = S.df, S.ban, S.classes
-S.groups = parse_joint(S.joint)
-S.gmap = joint_map(S.groups)
-
-# ---- 6, 7. xếp TKB
-st.subheader("2️⃣ Xếp TKB tự động (Google OR-Tools)")
-a1, a2, a3 = st.columns([2, 2, 2])
-with a1:
-    avoid_file = st.file_uploader("Lấy tệp gvyctranh.xlsx (cột ten_gv, Thứ 2..Thứ 7; ô ghi các cặp (Thứ,tiết))", type=["xlsx"], key="avoid_up")
-    st.download_button("Tải mẫu gvyctranh.xlsx", avoid_template(), "gvyctranh_mau.xlsx")
+    # B3. tải lên gvyctranh.xlsx và info.json
+    avoid_file = st.file_uploader("3a. Tải lên gvyctranh.xlsx (GV yêu cầu tránh tiết)",
+                                  type=["xlsx"], key="up_avoid")
     if avoid_file is None:
-        S.avoid_sig = None       # bỏ file đi thì lần upload sau sẽ được nạp lại
+        S.avoid_sig = None
     else:
         _sig = (avoid_file.name, hashlib.md5(avoid_file.getvalue()).hexdigest())
         if S.avoid_sig != _sig:
@@ -1078,189 +1237,119 @@ with a1:
                 S.avoid_ver += 1
             except Exception as e:
                 st.error(f"Lỗi đọc gvyctranh.xlsx: {e}")
-    S.avoid = parse_avoid(S.avoid_df)
-    st.caption(f"Đang có yêu cầu tránh tiết của {len(S.avoid)} GV (nhập thêm bằng nút bên dưới).")
-    _known = {gv_name(t).casefold() for c in classes for t in S.base[c]}
-    _unknown = [n for n in S.avoid if n.casefold() not in _known]
-    if _unknown:
-        st.warning("GV trong gvyctranh.xlsx không có trong file TKB: " + ", ".join(_unknown))
 
-    st.markdown("---")
-    joint_file = st.file_uploader("tietghep.xlsx (cột GV_Mon, Lop, Vi_tri)", type=["xlsx"], key="joint_up")
-    st.download_button("Tải mẫu tietghep.xlsx", joint_template(), "tietghep_mau.xlsx", key="dl_joint_tpl")
-    if joint_file is None:
-        S.joint_sig = None
+    info_file = st.file_uploader("3b. Tải lên info.json (tiêu đề bản in, ràng buộc xếp)",
+                                 type=["json"], key="up_info")
+    if info_file is None:
+        S.info_sig = None
     else:
-        _jsig = hashlib.md5(joint_file.getvalue()).hexdigest()
-        if S.joint_sig != _jsig:
+        _isig = hashlib.md5(info_file.getvalue()).hexdigest()
+        if S.info_sig != _isig:
             try:
-                S.joint = load_joint_df(joint_file)
-                S.joint_sig = _jsig
-                S.gk += 1          # dựng lại lưới để cập nhật màu theo nhóm ghép
+                apply_info(json.loads(info_file.getvalue().decode("utf-8")))
+                S.info_sig = _isig
             except Exception as e:
-                st.error(f"Lỗi đọc tietghep.xlsx: {e}")
+                st.error(f"Lỗi đọc info.json: {e}")
+
+    with st.expander("🖨️ Tiêu đề bản in"):
+        st.text_input("Trường", key="school")
+        st.date_input("Áp dụng từ", key="apply_from", format="DD/MM/YYYY")
+
+    S.avoid = parse_avoid(S.avoid_df)
     S.groups = parse_joint(S.joint)
     S.gmap = joint_map(S.groups)
-    st.caption(f"Đang có {len(S.groups)} nhóm tiết ghép (quản lý bằng nút Tiết ghép bên dưới).")
-    if len(S.joint) > len(S.groups):
-        st.warning(f"Có {len(S.joint) - len(S.groups)} dòng tiết ghép bị bỏ qua (thiếu GV_Mon hoặc dưới 2 lớp).")
-    for _p in check_joint(S.groups, S.base, classes):
-        st.warning(_p)
-with a2:
-    tlimit = st.select_slider("Thời gian chạy thuật toán (giây)", options=[30, 60, 120, 180, 240, 300], value=60)
-    if st.button("⚙️ Chọn lại ràng buộc"):
-        constraint_dialog()
-with a3:
-    st.write("Ràng buộc đang bật:")
-    for k, v in S.rules.items():
-        st.caption(("✅ " if v["bat"] else "⬜ ") + v["mo_ta"])
+    has_df = S.df is not None
+    if has_df:
+        st.caption(f"Tránh tiết: {len(S.avoid)} GV · Tiết ghép: {len(S.groups)} nhóm")
+        _known = {gv_name(t).casefold() for c in S.classes for t in S.base[c]}
+        _unknown = [n for n in S.avoid if n.casefold() not in _known]
+        if _unknown:
+            st.warning("GV trong gvyctranh.xlsx không có trong file TKB: " + ", ".join(_unknown))
+        for _p in check_joint(S.groups, S.base, S.classes):
+            st.warning(_p)
 
-# ---- nhập yêu cầu tránh tiết cho GV (dialog, đặt ngay sau phần gvyctranh.xlsx, trước khi xếp TKB)
-@st.dialog("Nhập yêu cầu tránh tiết cho GV", width="large")
-def dlg_avoid():
-    names = sorted({gv_name(t) for c in S.classes for t in S.base[c]}
-                   | {gv_name(tok(v)) for c in S.classes for v in S.df[c] if tok(v)})
-    sel = st.selectbox("Chọn giáo viên", names, index=None, placeholder="Chọn giáo viên...",
-                       key="menu_av")
-    if not sel:
-        return
-    days_ = sorted(set(S.df["Thứ"].astype(int)))
-    cur = next((v for k, v in S.avoid.items() if k.casefold() == sel.casefold()), set())
-    st.markdown(f"**Yêu cầu xếp tránh tiết của GV: {sel}**")
-    st.caption("Nhập ký tự x vào ô phù hợp với các tiết cần tránh xếp trong ngày.")
-    tbl = pd.DataFrame({"Tiết": list(range(1, 11))})
-    for d in days_:
-        tbl[f"Thứ {d}"] = ["x" if (d, p) in cur else "" for p in range(1, 11)]
-    cfg = {"Tiết": st.column_config.NumberColumn("Tiết", width="small")}
-    for d in days_:
-        cfg[f"Thứ {d}"] = st.column_config.TextColumn(f"Thứ {d}", max_chars=1, width="small")
-    edited = st.data_editor(tbl, hide_index=True, disabled=["Tiết"], column_config=cfg,
-                            key=f"avoid_ed_{sel}_{S.avoid_ver}")
-    if st.button("💾 Lưu dữ liệu", key=f"save_av_{sel}"):
-        pairs = {(d, int(p)) for d in days_
-                 for p, v in zip(edited["Tiết"], edited[f"Thứ {d}"]) if tok(v)}
-        S.avoid_df = avoid_set_row(S.avoid_df, sel, pairs)
-        S.avoid = parse_avoid(S.avoid_df)
-        S.avoid_ver += 1
-        S.avoid_msg = (f"Đã lưu {len(pairs)} tiết tránh của GV {sel}. "
-                       "Bấm 'Tải về gvyctranh.xlsx' để lấy file đã cập nhật.")
-        st.rerun()   # đóng dialog và chạy lại để nút tải nhận dữ liệu mới
+    st.divider()
+    st.subheader("⚙️ Xếp TKB")
+    # B4. ràng buộc
+    btn_rules = st.button("4. ☑️ Chọn / bỏ ràng buộc xếp", use_container_width=True)
+    btn_joint = st.button("🤝 Tiết ghép (1 GV nhiều lớp)", use_container_width=True, disabled=not has_df)
+    # B5. xếp tự động
+    btn_solve = st.button("5. 🚀 Xếp TKB tự động", type="primary", use_container_width=True,
+                          disabled=not has_df)
 
-
-@st.dialog("Tiết ghép: 1 GV dạy nhiều lớp cùng lúc", width="large")
-def dlg_joint():
-    st.caption("Dùng cho môn như Thể dục: 1 GV dạy nhiều lớp chung 1 tiết ngoài sân. "
-               "Các lớp trong nhóm luôn học cùng ô và không bị tính là GV trùng tiết.")
-    toks = sorted({t for c in S.classes for t in S.base[c]})
-    tk = st.selectbox("GV_Môn", toks, index=None, placeholder="Chọn GV_Môn (ví dụ Minh_TD)...", key="jn_tok")
-    opts = [c for c in S.classes if tk and S.base[c].get(tk, 0) > 0]
-    cl = st.multiselect("Các lớp học chung", opts, key="jn_cls")
-    fx = st.text_input("Vị trí cố định (Thứ,Tiết) - để trống nếu để máy tự chọn. Ví dụ: (4,2)", key="jn_fix")
-    if st.button("➕ Thêm nhóm ghép"):
-        pairs = PAIR_RE.findall(fx)
-        if not tk or len(cl) < 2:
-            st.error("Hãy chọn GV_Môn và ít nhất 2 lớp.")
-        elif fx.strip() and not pairs:
-            st.error("Vị trí cố định phải có dạng (Thứ,Tiết), ví dụ (4,2).")
-        else:
-            row = {"GV_Mon": tk, "Lop": ",".join(cl),
-                   "Vi_tri": ", ".join(f"({d},{p})" for d, p in pairs)}
-            S.joint = pd.concat([S.joint, pd.DataFrame([row])], ignore_index=True)
-            S.gk += 1
-            st.success(f"Đã thêm nhóm ghép {tk}: {', '.join(cl)}.")
-    if len(S.joint):
-        st.markdown("**Các nhóm tiết ghép hiện có**")
-        show = S.joint.copy()
-        show.insert(0, "STT", range(1, len(show) + 1))
-        st.dataframe(show, hide_index=True, use_container_width=True)
-        dsel = st.selectbox("Xóa nhóm số", list(range(1, len(S.joint) + 1)), index=None,
-                            placeholder="Chọn STT...", key="jn_del")
-        if st.button("🗑 Xóa nhóm đã chọn") and dsel:
-            S.joint = S.joint.drop(index=dsel - 1).reset_index(drop=True)
-            S.gk += 1
-            st.rerun()
-    st.caption("Muốn nạp từ file: upload tietghep.xlsx ở mục xếp TKB (cạnh gvyctranh.xlsx).")
-    st.download_button("⬇️ Tải về tietghep.xlsx", avoid_bytes(S.joint.rename(columns={}).copy()),
-                       "tietghep.xlsx", key="dl_joint",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    if st.button("✔ Xong, đóng"):
-        st.rerun()
-
-
-d1, d2, d3 = st.columns(3)
-if d3.button("🤝 Tiết ghép (1 GV nhiều lớp)"):
-    dlg_joint()
-d1.download_button("⬇️ Tải về gvyctranh.xlsx", avoid_bytes(S.avoid_df), "gvyctranh.xlsx",
-                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                   key="dl_avoid")
-if d2.button("✍️ Nhập / xem tránh tiết cho GV"):
-    S.menu_av = None
-    dlg_avoid()
-if S.get("avoid_msg"):
-    st.success(S.avoid_msg)
-    S.avoid_msg = None
-st.caption("Yêu cầu tránh tiết được giữ trong phiên làm việc này. Hãy tải gvyctranh.xlsx về, "
-           "lần sau upload lại ở trên.")
-if len(S.avoid_df):
-    with st.expander("Xem nội dung gvyctranh.xlsx hiện tại"):
-        st.dataframe(S.avoid_df, hide_index=True, use_container_width=True)
-
-run = st.button("▶️ Chạy xếp TKB", type="primary")
-
-if run:
-    with st.spinner(f"Đang xếp TKB (tối đa {tlimit} giây)...", show_time=True):
-        ok, msg, new = solve_tkb(df, ban, classes, S.base, S.rules, S.avoid, tlimit, S.groups)
-    if ok:
-        S.df = new
-        S.pending = None
-        S.gk += 1
-        S.flash = ("success", msg)
-        st.rerun()
+    st.divider()
+    st.subheader("⬇️ Tải về")
+    # B6. tkb-da-xep.xlsx
+    if has_df:
+        st.download_button("6. Tải tkb-da-xep.xlsx", to_excel_bytes(S.df, S.classes),
+                           "tkb-da-xep.xlsx", mime=XLSX_MIME, key="dl_tkb", use_container_width=True)
     else:
-        st.error(msg)
+        st.button("6. Tải tkb-da-xep.xlsx", disabled=True, use_container_width=True)
+    # B7. gvyctranh.xlsx, info.json đã thay đổi
+    st.download_button("7a. Tải gvyctranh.xlsx", avoid_bytes(S.avoid_df), "gvyctranh.xlsx",
+                       mime=XLSX_MIME, key="dl_avoid", use_container_width=True)
+    st.download_button("7b. Tải info.json", info_bytes(), "info.json",
+                       mime="application/json", key="dl_info", use_container_width=True)
+
+    st.divider()
+    # B8. xuất PDF
+    st.subheader("📄 Xuất PDF")
+    kind = st.selectbox("8. Chọn loại PDF", ["tkb_all", "tkb_moi_gv", "tkb_moi_lop"],
+                        format_func=lambda k: {"tkb_all": "Xuất & tải PDF TKB toàn trường",
+                                               "tkb_moi_gv": "Xuất & tải PDF TKB từng GV",
+                                               "tkb_moi_lop": "Xuất & tải PDF TKB từng lớp"}[k])
+    if st.button("Tạo PDF", use_container_width=True, disabled=not has_df):
+        try:
+            with st.spinner("Đang tạo PDF..."):
+                S.pdf = (kind, build_pdf(kind, S.df, S.classes, S.school, S.apply_from))
+        except Exception as e:
+            st.error(f"Lỗi tạo PDF: {e}")
+    if S.pdf and has_df:
+        k_, data_ = S.pdf
+        st.download_button(f"⬇️ Tải {k_}.pdf", data_, f"{k_}.pdf", mime="application/pdf",
+                           key="dl_pdf", use_container_width=True)
+
+# ---- mở dialog (gọi ngoài sidebar cho chắc chắn)
+if btn_check:
+    if S.report is None:
+        st.warning("Chưa có tệp TKB. Hãy tải file Excel lên ở thanh bên.")
+    else:
+        show_report(S.report)
+elif btn_rules:
+    constraint_dialog()
+elif btn_joint:
+    dlg_joint()
+elif btn_solve:
+    dlg_solve()
+elif S.open_result and S.df is not None:
+    S.open_result = False
+    dlg_result()
+
+if S.df is None:
+    st.info("Mở thanh bên (nút ☰ ở góc trên bên trái) → tải file Excel TKB hợp lệ lên để bắt đầu.")
+    st.stop()
+
+df, ban, classes = S.df, S.ban, S.classes
 
 if S.flash:
-    getattr(st, S.flash[0])(S.flash[1])
+    st.toast(S.flash)
     S.flash = None
+if S.avoid_msg:
+    st.toast(S.avoid_msg)
+    S.avoid_msg = None
 
-# ---- thống kê tiết đã / chưa xếp
-rem = remaining(df, ban, classes, S.base)
-n_rem = sum(sum(v.values()) for v in rem.values())
-n_total = sum(sum(v.values()) for v in S.base.values())
-pct = round(100 * (n_total - n_rem) / n_total) if n_total else 100
-st.markdown(f"**Tỉ lệ % đã xếp được là {pct}%**  \n"
-            f"Còn **{n_rem}** tiết chưa xếp (chưa đem vào lưới và file kết quả).")
-if n_rem:
-    st.write("❓ Có cần đem hết vào lưới để tự xếp không (Y/N)? Chọn Y thì bấm nút bên dưới.")
-    with st.expander("Xem các tiết chưa xếp"):
-        st.dataframe(pd.DataFrame([{"Lớp": c, "Số tiết": sum(v.values()),
-                                    "Các tiết": ", ".join(f"{t} x{n}" for t, n in sorted(v.items()))}
-                                   for c, v in rem.items() if v]),
-                     hide_index=True, use_container_width=True)
-if st.button("📥 Đưa các tiết chưa xếp vào lưới", disabled=(n_rem == 0)):
-    newdf = df.copy()
-    for c in classes:
-        free_cells = [i for i in range(len(df)) if not ban.at[i, c] and df.at[i, c] == ""]
-        for i, t in zip(free_cells, list(rem[c].elements())):
-            newdf.at[i, c] = t
-    S.df = newdf
-    S.pending = None
-    S.gk += 1
-    S.flash = ("info", "Đã đưa các tiết chưa xếp vào các ô trống của lưới. Hãy tinh chỉnh bằng tay (ô đỏ là chỗ GV trùng tiết).")
-    st.rerun()
-
-# ---- 5, 8. lưới
-st.subheader("3️⃣ Tinh chỉnh TKB")
-t1, t2, t3 = st.columns([1, 1, 3])
-t1.toggle("Bật/Tắt: Hoán vị ô", key="swap1", on_change=on_swap1)
-t2.toggle("Bật/Tắt: Xem TKB của GV", key="swap2", on_change=on_swap2)
+# ---- A3. hai nút swap
+t1, t2 = st.columns(2)
+t1.toggle("Hoán vị", key="swap1", on_change=on_swap1)
+t2.toggle("Xem TKB GV", key="swap2", on_change=on_swap2)
 if S.swap1:
-    t3.info("Hoán vị: bấm ô thứ nhất (viền xanh) rồi bấm ô thứ hai để đổi chỗ ngay trên lưới. Ô xám cấm xếp không đổi được.")
+    st.caption("Hoán vị: chạm ô thứ nhất (viền xanh) rồi chạm ô thứ hai để đổi chỗ. Ô xám không đổi được.")
 elif S.swap2:
-    t3.info("Bấm vào ô có tên GV để mở cửa sổ TKB của GV đó.")
+    st.caption("Chạm vào ô có tên GV để xem TKB của GV đó.")
 else:
-    t3.info("Chế độ tự do: bấm đúp vào ô để sửa trực tiếp (dạng Tên_Môn, môn 2 ký tự HOA).")
+    st.caption("Chế độ tự do: chạm đúp vào ô để sửa (dạng Tên_Môn, môn 2 ký tự HOA).")
 
+# ---- A4. lưới tinh chỉnh
 # Lưới được dựng 1 lần cho mỗi "phiên bản" gk. Hoán vị/sửa ô diễn ra ngay trong trình duyệt
 # nên lưới không bị tải lại (không chớp, không mất vị trí con trỏ).
 if S.get("grid_df") is None or S.get("grid_gk") != S.gk:
@@ -1272,28 +1361,34 @@ if ndup:
     st.warning(f"Có {ndup} dòng có GV trùng tiết (tô đỏ).")
 else:
     st.success("Không có GV nào trùng tiết.")
+
+_notes = []
 if S.rules.get("toi_da_2", {}).get("bat"):
     over = count_over2(df, classes)
     if over:
-        st.warning(f"Có {over} trường hợp một môn học quá 2 tiết/lớp trong một ngày.")
+        _notes.append(f"{over} trường hợp một môn quá 2 tiết/lớp/ngày")
 if S.rules.get("toi_thieu_2", {}).get("bat"):
     single = count_single(df, classes)
     if single:
-        st.warning(f"Có {single} buổi mà GV chỉ dạy đúng 1 tiết (nên có ít nhất 2 tiết/buổi).")
+        _notes.append(f"{single} buổi GV chỉ dạy đúng 1 tiết")
+_rem = remaining(df, ban, classes, S.base)
+_n_rem = sum(sum(v.values()) for v in _rem.values())
+if _n_rem:
+    _notes.append(f"{_n_rem} tiết chưa xếp (chưa có trong lưới)")
+if _notes:
+    st.caption("⚠️ " + " · ".join(_notes))
 
 mode = "swap1" if S.swap1 else "swap2" if S.swap2 else "free"
 gb = GridOptionsBuilder.from_dataframe(gdf)
 gb.configure_default_column(editable=EDITABLE_JS if mode == "free" else False, sortable=False,
-                            filter=False, resizable=True, suppressMovable=True, minWidth=80,
+                            filter=False, resizable=True, suppressMovable=True, minWidth=72,
                             cellStyle=CELL_STYLE)
 for c in HELPER_COLS:
     gb.configure_column(c, hide=True)
-#gb.configure_column("Thứ", pinned="left", width=20, editable=False)
-#gb.configure_column("Tiết", pinned="left", width=20, editable=False)
-
-gb.configure_column("Thứ", pinned="left", width=30, mminWidth=30, mmaxWidth=30, suppressSizeToFit=True, editable=False)
-gb.configure_column("Tiết", pinned="left", width=60, minWidth=60, maxWidth=60, suppressSizeToFit=True, editable=False)
-
+gb.configure_column("Thứ", pinned="left", width=48, minWidth=48, maxWidth=48,
+                    suppressSizeToFit=True, editable=False)
+gb.configure_column("Tiết", pinned="left", width=48, minWidth=48, maxWidth=48,
+                    suppressSizeToFit=True, editable=False)
 gb.configure_column("Giờ", hide=True)
 cj = click_js(mode, S.gmap)
 if cj is not None:
@@ -1301,7 +1396,7 @@ if cj is not None:
 if mode == "free":
     gb.configure_grid_options(onCellValueChanged=edit_js(S.gmap))
 resp = AgGrid(gdf, gridOptions=gb.build(), update_on=["cellValueChanged"],
-              allow_unsafe_jscode=True, key=f"grid_{S.gk}", height=620)
+              allow_unsafe_jscode=True, key=f"grid_{S.gk}", height=560)
 
 nd = resp.data if hasattr(resp, "data") else None
 if nd is not None and len(nd):
@@ -1350,69 +1445,22 @@ if nd is not None and len(nd):
                         else:
                             st.toast("Ô này chưa có GV.")
 
-# ---- Xem/In rời rạc & nhập tránh tiết
-st.subheader("4️⃣ Chỉnh tiêu đề bản in")
-q1, q2 = st.columns(2)
-school = q1.text_input("Trường", "ABC")
-apply_from = q2.date_input("Áp dụng từ", value=date(2026, 9, 5), format="DD/MM/YYYY")
-
-st.subheader("5️⃣ Xem/Tải TKB Giáo viên/Lớp")
+# ---- A5. ba menu chọn
 gv_list = sorted({gv_name(t) for c in classes for t in S.base[c]}
                  | {gv_name(tok(v)) for c in classes for v in df[c] if tok(v)})
-def _pick(kind, key):
-    """Chọn trong selectbox -> yêu cầu mở dialog, rồi trả selectbox về trạng thái chưa chọn
-    (để lần sau chọn lại đúng GV/lớp đó vẫn mở được dialog)."""
-    v = S.get(key)
-    if v:
-        S.open_dlg = (kind, v)
-        S[key] = None
-
-
-m1, m2 = st.columns(2)
-m1.selectbox("a - Xem/In TKB GV", gv_list, index=None, placeholder="Chọn giáo viên...",
+m1, m2, m3 = st.columns(3)
+m1.selectbox("Xem TKB GV", gv_list, index=None, placeholder="Chọn GV",
              key="menu_gv", on_change=_pick, args=("gv", "menu_gv"))
-m2.selectbox("b - Xem/In TKB Lớp", classes, index=None, placeholder="Chọn lớp...",
+m2.selectbox("Tránh tiết GV", gv_list, index=None, placeholder="Chọn GV",
+             key="menu_av", on_change=_pick, args=("av", "menu_av"))
+m3.selectbox("Xem TKB lớp", classes, index=None, placeholder="Chọn lớp",
              key="menu_lop", on_change=_pick, args=("lop", "menu_lop"))
-
-
-@st.dialog("Xem / Tải TKB", width="large")
-def dlg_week(kind, name):
-    cur_df, cur_classes = S.df, S.classes
-    page, total = week_html(kind, cur_df, cur_classes, name, school, apply_from, S.gmap)
-    st.markdown(page, unsafe_allow_html=True)
-    st.caption(f"Tổng cộng {total} tiết/tuần.")
-    try:
-        data = build_pdf("tkb_moi_gv" if kind == "gv" else "tkb_moi_lop", cur_df, cur_classes,
-                         school, apply_from, only=name)
-        st.download_button(f"⬇️ Tải PDF {name}", data, f"tkb_{name}.pdf",
-                           mime="application/pdf", key=f"dl_{kind}_{name}")
-    except Exception as e:
-        st.caption(f"Không tạo được PDF: {e}")
-
 
 if S.get("open_dlg"):
     _kind, _name = S.open_dlg
     S.open_dlg = None
-    dlg_week(_kind, _name)
-
-# ---- 9. download excel
-st.subheader("6️⃣ Tải về tệp TKB excel chung")
-st.download_button("⬇️ Tải file TKB excel đã xếp", to_excel_bytes(S.df, classes),
-                   "tkb_da_xep.xlsx",
-                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-# ---- 10. PDF
-st.subheader("7️⃣ Tải các Tkb.pdf : Trường, Giáo viên, Lớp")
-kind = st.selectbox("Chọn loại PDF", ["tkb_all", "tkb_moi_gv", "tkb_moi_lop"],
-                    format_func=lambda k: {"tkb_all": "tkb_all.pdf - TKB toàn trường",
-                                           "tkb_moi_gv": "tkb_moi_gv.pdf - TKB từng giáo viên",
-                                           "tkb_moi_lop": "tkb_moi_lop.pdf - TKB từng lớp"}[k])
-if st.button("Tạo PDF"):
-    try:
-        with st.spinner("Đang tạo PDF..."):
-            S.pdf = (kind, build_pdf(kind, S.df, classes, school, apply_from))
-    except Exception as e:
-        st.error(f"Lỗi tạo PDF: {e}")
-if S.get("pdf"):
-    k, data = S.pdf
-    st.download_button(f"⬇️ Tải {k}.pdf", data, f"{k}.pdf", mime="application/pdf")
+    if _kind == "av":
+        dlg_avoid(_name)
+    else:
+        dlg_week(_kind, _name)
+        
