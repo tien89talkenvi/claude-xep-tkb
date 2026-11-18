@@ -1,1 +1,7 @@
-
+[theme]
+base="dark"
+primaryColor="#6b7280"                # Gray 500 – nhấn trung tính
+backgroundColor="rgb(241, 239, 245)"  # Gray 200 – nền sáng
+secondaryBackgroundColor="#d4d4d4"    # Gray 300 – sidebar/container
+textColor="#1f2937"                   # Gray 800 – chữ đậm, rõ
+font="sans serif"
