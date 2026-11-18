@@ -956,14 +956,18 @@ for _k, _v in DEFAULT_RULES.items():
 # ---- A2. mật mã
 if not S.auth:
     pw = st.text_input("Nhập mật mã để vào app", type="password")
-    real = st.secrets.get("APP_PASSWORD", "tkb@2026") if hasattr(st, "secrets") else "tkb@2026"
-    if pw:
-        if pw == real:
-            S.auth = True
-            st.rerun()
-        else:
-            st.error("Mật mã không đúng.")
-    st.stop()
+    if st.button('Vào'):
+        real = st.secrets.get("APP_PASSWORD", "tkb@2026") if hasattr(st, "secrets") else "tkb@2026"
+        if pw:
+            if pw == real:
+                S.auth = True
+                st.rerun()
+            else:
+                st.error("Mật mã không đúng.")
+        st.stop()
+    else:
+        st.stop()
+
 
 
 # ---- dialogs
@@ -1178,7 +1182,7 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # ======================================================================= SIDEBAR
 btn_check = btn_rules = btn_joint = btn_solve = False
 with st.sidebar:
-    st.subheader("📂 Dữ liệu")
+    st.subheader("1️⃣ Dữ liệu 📂")
 
     # B1. tải TKB excel lên server
     up = st.file_uploader("1. Tải file Excel TKB (.xlsx) lên", type=["xlsx"], key="up_tkb")
@@ -1269,7 +1273,7 @@ with st.sidebar:
             st.warning(_p)
 
     st.divider()
-    st.subheader("⚙️ Xếp TKB")
+    st.subheader("2️⃣ Xếp TKB ⚙️")
     # B4. ràng buộc
     btn_rules = st.button("4. ☑️ Chọn / bỏ ràng buộc xếp", use_container_width=True)
     btn_joint = st.button("🤝 Tiết ghép (1 GV nhiều lớp)", use_container_width=True, disabled=not has_df)
@@ -1278,7 +1282,7 @@ with st.sidebar:
                           disabled=not has_df)
 
     st.divider()
-    st.subheader("⬇️ Tải về")
+    st.subheader("3️⃣ Tải về ⬇️")
     # B6. tkb-da-xep.xlsx
     if has_df:
         st.download_button("6. Tải tkb-da-xep.xlsx", to_excel_bytes(S.df, S.classes),
@@ -1293,7 +1297,7 @@ with st.sidebar:
 
     st.divider()
     # B8. xuất PDF
-    st.subheader("📄 Xuất PDF")
+    st.subheader("4️⃣ Xuất PDF 📄")
     kind = st.selectbox("8. Chọn loại PDF", ["tkb_all", "tkb_moi_gv", "tkb_moi_lop"],
                         format_func=lambda k: {"tkb_all": "Xuất & tải PDF TKB toàn trường",
                                                "tkb_moi_gv": "Xuất & tải PDF TKB từng GV",
@@ -1463,4 +1467,21 @@ if S.get("open_dlg"):
         dlg_avoid(_name)
     else:
         dlg_week(_kind, _name)
-        
+
+#####
+def check_password() -> bool:
+    if st.session_state.auth:
+        return True
+    st.header("🎧 Tự học tiếng Anh từ Shorts với AI")
+    expected = st.secrets.get("APP_PASSWORD", "")
+    if not expected:
+        st.error("Chưa đặt APP_PASSWORD trong Secrets của Streamlit.")
+        return False
+    pw = st.text_input("Nhập mật mã để tiếp tục", type="password")
+    if st.button("Vào"):
+        if hmac.compare_digest(pw.encode(), expected.encode()):
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("Sai mật mã.")
+    return False
